@@ -10,7 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from src.config import get_config
-from src.llm.client import OllamaClient
+from src.llm.client import LLMUnavailableError, MLXLMClient
 from src.tts.router import VoiceRouter
 from src.ws.handler import Session, TurnHandler
 
@@ -22,13 +22,16 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = get_config()
-    llm_client = OllamaClient(config)
+    try:
+        llm_client = MLXLMClient(config)
+    except LLMUnavailableError:
+        logger.warning("MLX LLM not available — server will start but generation is disabled")
+        llm_client = None  # type: ignore[assignment]
     voice_router = VoiceRouter(config)
     app.state.config = config
     app.state.turn_handler = TurnHandler(config, llm_client, voice_router)
     logger.info("RP-TTS Engine ready on %s:%d", config.server.host, config.server.port)
     yield
-    await llm_client.close()
 
 
 app = FastAPI(title="RP-TTS Engine", lifespan=lifespan)

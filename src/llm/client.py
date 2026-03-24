@@ -1,86 +1,162 @@
-"""Async streaming client for Ollama HTTP API."""
+"""In-process LLM client using mlx-lm on Apple Silicon."""
 
 from __future__ import annotations
 
-import json
+import asyncio
+import logging
 from typing import AsyncGenerator
 
-import httpx
+import numpy as np
 
 from src.config import AppConfig
 
+logger = logging.getLogger(__name__)
+
+try:
+    from mlx_lm import load as _mlx_lm_load
+    from mlx_lm import stream_generate as _mlx_stream_generate
+    from mlx_lm.sample_utils import make_logits_processors, make_sampler
+
+    MLX_LM_AVAILABLE = True
+except Exception:
+    MLX_LM_AVAILABLE = False
+
+try:
+    from mlx_embeddings import load as _mlx_embed_load
+
+    MLX_EMBED_AVAILABLE = True
+except Exception:
+    MLX_EMBED_AVAILABLE = False
+
 
 class LLMUnavailableError(Exception):
-    """Raised when the LLM backend cannot be reached."""
+    """Raised when the LLM backend is not available."""
 
 
-class OllamaClient:
-    """Thin async wrapper around Ollama's ``/api/chat`` and ``/api/embed``."""
+class MLXLMClient:
+    """In-process LLM inference via mlx-lm with streaming generation.
+
+    Loads the model into Apple Silicon unified memory on init.
+    On non-MLX platforms, raises :class:`LLMUnavailableError`.
+    """
 
     def __init__(self, config: AppConfig) -> None:
-        self._base_url = config.llm.base_url.rstrip("/")
-        self._model = config.llm.model
-        self._embed_model = config.llm.embed_model
-        self._temperature = config.llm.temperature
+        if not MLX_LM_AVAILABLE:
+            raise LLMUnavailableError(
+                "mlx-lm is not available. Install with: pip install mlx-lm "
+                "(requires Apple Silicon)."
+            )
+
         self._max_tokens = config.llm.max_tokens
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0))
+
+        # Load LLM
+        logger.info("Loading LLM: %s", config.llm.model)
+        try:
+            self._model, self._tokenizer = _mlx_lm_load(config.llm.model)
+        except Exception as exc:
+            raise LLMUnavailableError(
+                f"Failed to load model {config.llm.model}: {exc}"
+            ) from exc
+
+        # Build sampler and logits processors
+        self._sampler = make_sampler(
+            temperature=config.llm.temperature,
+            top_p=config.llm.top_p,
+        )
+        self._logits_processors = make_logits_processors(
+            repetition_penalty=config.llm.repetition_penalty,
+        )
+
+        # Load embedding model
+        self._embed_model = None
+        self._embed_tokenizer = None
+        if MLX_EMBED_AVAILABLE:
+            logger.info("Loading embedding model: %s", config.llm.embed_model)
+            try:
+                self._embed_model, self._embed_tokenizer = _mlx_embed_load(
+                    config.llm.embed_model
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to load embedding model %s — embeddings disabled",
+                    config.llm.embed_model,
+                    exc_info=True,
+                )
+        else:
+            logger.warning("mlx-embeddings not available — embeddings disabled")
+
+        logger.info("MLX LLM client ready")
 
     async def close(self) -> None:
-        await self._client.aclose()
+        """No-op — kept for interface compatibility."""
 
     async def stream_chat(
         self, messages: list[dict[str, str]]
     ) -> AsyncGenerator[str, None]:
-        """Stream token strings from Ollama /api/chat."""
-        payload = {
-            "model": self._model,
-            "messages": messages,
-            "stream": True,
-            "options": {
-                "temperature": self._temperature,
-                "num_predict": self._max_tokens,
-            },
-        }
-        try:
-            async with self._client.stream(
-                "POST",
-                f"{self._base_url}/api/chat",
-                json=payload,
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    data = json.loads(line)
-                    token = data.get("message", {}).get("content", "")
-                    if token:
-                        yield token
-                    if data.get("done"):
-                        return
-        except httpx.ConnectError as exc:
-            raise LLMUnavailableError(
-                f"Cannot connect to Ollama at {self._base_url}: {exc}"
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            raise LLMUnavailableError(
-                f"Ollama returned HTTP {exc.response.status_code}"
-            ) from exc
+        """Stream token strings from the local MLX model.
+
+        Applies the tokenizer's chat template, then streams generation.
+        The synchronous ``stream_generate`` call is offloaded to a thread
+        to avoid blocking the event loop.
+        """
+        # Apply chat template
+        if hasattr(self._tokenizer, "apply_chat_template") and self._tokenizer.chat_template:
+            prompt = self._tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False
+            )
+        else:
+            # Fallback: concatenate messages
+            prompt = "\n".join(
+                f"{'### ' if m['role'] == 'system' else ''}{m['content']}"
+                for m in messages
+            )
+
+        # Run synchronous stream_generate in a thread and yield tokens
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+        def _generate() -> None:
+            try:
+                for response in _mlx_stream_generate(
+                    self._model,
+                    self._tokenizer,
+                    prompt,
+                    max_tokens=self._max_tokens,
+                    sampler=self._sampler,
+                    logits_processors=self._logits_processors,
+                ):
+                    loop.call_soon_threadsafe(queue.put_nowait, response.text)
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, exc)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        asyncio.get_event_loop().run_in_executor(None, _generate)
+
+        while True:
+            item = await queue.get()
+            if item is None:
+                return
+            if isinstance(item, Exception):
+                raise LLMUnavailableError(f"Generation error: {item}") from item
+            yield item
 
     async def embed(self, text: str) -> list[float]:
-        """Get an embedding vector via Ollama /api/embed."""
-        payload = {"model": self._embed_model, "input": text}
-        try:
-            resp = await self._client.post(
-                f"{self._base_url}/api/embed", json=payload
+        """Get an embedding vector using the MLX embedding model."""
+        if self._embed_model is None or self._embed_tokenizer is None:
+            raise LLMUnavailableError("Embedding model not loaded")
+
+        def _encode() -> list[float]:
+            inputs = self._embed_tokenizer(
+                text, return_tensors="np", padding=True, truncation=True
             )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["embeddings"][0]
-        except httpx.ConnectError as exc:
-            raise LLMUnavailableError(
-                f"Cannot connect to Ollama at {self._base_url}: {exc}"
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            raise LLMUnavailableError(
-                f"Ollama returned HTTP {exc.response.status_code}"
-            ) from exc
+            outputs = self._embed_model(**{k: v for k, v in inputs.items()})
+            # Extract the [CLS] token embedding or mean pooling
+            embeddings = outputs.last_hidden_state
+            # Mean pooling over token dimension
+            mask = inputs["attention_mask"]
+            masked = embeddings * np.expand_dims(mask, -1)
+            pooled = masked.sum(axis=1) / mask.sum(axis=1, keepdims=True)
+            return pooled[0].tolist()
+
+        return await asyncio.get_event_loop().run_in_executor(None, _encode)

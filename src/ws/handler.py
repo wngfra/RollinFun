@@ -11,7 +11,7 @@ from starlette.websockets import WebSocket
 
 from src.audio.pipeline import estimate_word_timestamps, process_segment
 from src.config import AppConfig
-from src.llm.client import LLMUnavailableError, OllamaClient
+from src.llm.client import LLMUnavailableError, MLXLMClient
 from src.llm.prompt import assemble_context
 from src.parser.segment_parser import (
     Choices,
@@ -46,7 +46,7 @@ class TurnHandler:
     def __init__(
         self,
         config: AppConfig,
-        llm_client: OllamaClient,
+        llm_client: MLXLMClient,
         voice_router: VoiceRouter,
     ) -> None:
         self._config = config
