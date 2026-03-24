@@ -222,6 +222,120 @@
         #send-btn:hover { opacity: 0.85; }
         #send-btn:disabled { opacity: 0.4; cursor: default; }
 
+        /* ── Story button ── */
+        #story-btn {
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--accent-dim);
+            border-radius: var(--radius);
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+            white-space: nowrap;
+        }
+        #story-btn:hover {
+            background: rgba(200, 169, 110, 0.1);
+            border-color: var(--accent);
+        }
+
+        /* ── Modal overlay ── */
+        #modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+        #modal-overlay.open { display: flex; }
+
+        #modal-box {
+            background: var(--bg-panel);
+            border: 1px solid #2a2a3a;
+            border-radius: 12px;
+            padding: 24px;
+            width: 90%;
+            max-width: 620px;
+            max-height: 85vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        #modal-box h2 {
+            font-family: 'Cormorant Garamond', Georgia, serif;
+            color: var(--accent);
+            font-size: 22px;
+            margin: 0;
+        }
+
+        #modal-box label {
+            font-size: 13px;
+            color: var(--text-dim);
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        #story-prompt {
+            width: 100%;
+            min-height: 220px;
+            background: #0a0a14;
+            border: 1px solid #2a2a3a;
+            border-radius: var(--radius);
+            color: var(--text);
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 12px;
+            resize: vertical;
+            outline: none;
+        }
+        #story-prompt:focus { border-color: var(--accent-dim); }
+
+        #player-name {
+            width: 100%;
+            background: #0a0a14;
+            border: 1px solid #2a2a3a;
+            border-radius: var(--radius);
+            color: var(--text);
+            font-size: 14px;
+            padding: 8px 12px;
+            outline: none;
+        }
+        #player-name:focus { border-color: var(--accent-dim); }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .modal-actions button {
+            padding: 10px 20px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+        }
+
+        #start-story-btn {
+            background: var(--accent);
+            color: var(--bg);
+        }
+        #start-story-btn:hover { opacity: 0.85; }
+
+        #cancel-modal-btn {
+            background: transparent;
+            color: var(--text-dim);
+            border: 1px solid #2a2a3a;
+        }
+        #cancel-modal-btn:hover { border-color: #3a3a4a; color: var(--text); }
+
         /* ── Responsive ── */
         @media (max-width: 768px) {
             #app { flex-direction: column; }
@@ -254,8 +368,28 @@
             </div>
             <div id="choices-container"></div>
             <div id="input-area">
+                <button id="story-btn">Story</button>
                 <input id="user-input" type="text" placeholder="Type your message…" autocomplete="off">
                 <button id="send-btn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Story Prompt Modal -->
+    <div id="modal-overlay">
+        <div id="modal-box">
+            <h2>Story Prompt</h2>
+            <div>
+                <label for="player-name">Player Name</label>
+                <input id="player-name" type="text" value="Player" autocomplete="off">
+            </div>
+            <div>
+                <label for="story-prompt">System Prompt</label>
+                <textarea id="story-prompt"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button id="cancel-modal-btn">Cancel</button>
+                <button id="start-story-btn">Start Story</button>
             </div>
         </div>
     </div>
@@ -725,6 +859,87 @@
             sendBtn.click();
         }
     };
+
+    // ── Story prompt modal ──
+
+    const DEFAULT_STORY = `You are the narrator of an interactive dark fantasy story. Use the tagged format for all output:
+
+[narrator] Narration and scene description text. [/narrator]
+[character_name mood="mood" gesture="gesture"] Character dialogue. [/character_name]
+[scene location="location_id"] to change location.
+[choices]
+1. "First option"
+2. "Second option"
+3. "Third option"
+[/choices]
+
+Setting: The Hollow Crown — a candlelit tavern in the crumbling city of Ashenmere. Rain hammers the leaded windows. The air smells of woodsmoke, spiced mead, and secrets. Adventurers, merchants, and shadowy figures crowd the worn tables.
+
+Characters:
+- Maren (tavern keeper): A broad-shouldered woman in her 40s with copper hair and knowing eyes. Warm but guarded — she has survived too much to trust easily. Knows everyone's secrets and trades in whispered favors.
+- Drel (hooded stranger): Sits alone in the darkest corner, nursing a drink that never empties. Speaks in riddles and half-truths. Their face is hidden, their motives unclear.
+
+Rules:
+- Narrate in vivid, atmospheric prose. Keep responses concise (2-4 paragraphs max).
+- Give characters distinct voices and mannerisms.
+- Present meaningful choices that shape the story.
+- React to the player's decisions with consequences.
+- Build tension gradually.
+
+Begin by describing the tavern scene as the player pushes open the heavy oak door and steps inside from the storm.`;
+
+    const modalOverlay = $('#modal-overlay');
+    const storyPromptEl = $('#story-prompt');
+    const playerNameEl = $('#player-name');
+    const storyBtn = $('#story-btn');
+
+    // Pre-fill default story
+    storyPromptEl.value = DEFAULT_STORY;
+
+    function openStoryModal() {
+        modalOverlay.classList.add('open');
+        storyPromptEl.focus();
+    }
+
+    function closeStoryModal() {
+        modalOverlay.classList.remove('open');
+        inputEl.focus();
+    }
+
+    function startStory() {
+        const systemPrompt = storyPromptEl.value.trim();
+        const playerName = playerNameEl.value.trim() || 'Player';
+        if (!systemPrompt) return;
+
+        // Send start_story over WebSocket
+        wsManager.send('start_story', {
+            story_id: 'custom',
+            player_name: playerName,
+            system_prompt: systemPrompt,
+        });
+
+        // Clear chat and show confirmation
+        messagesEl.innerHTML = '';
+        appendMessage('system', `Story started. You are ${playerName}.`, null, 'narrator');
+
+        closeStoryModal();
+    }
+
+    storyBtn.onclick = openStoryModal;
+    $('#start-story-btn').onclick = startStory;
+    $('#cancel-modal-btn').onclick = closeStoryModal;
+
+    // Close modal on overlay click (but not on box click)
+    modalOverlay.onclick = (e) => {
+        if (e.target === modalOverlay) closeStoryModal();
+    };
+
+    // Escape key closes modal
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modalOverlay.classList.contains('open')) {
+            closeStoryModal();
+        }
+    });
 
     // Focus input on load
     inputEl.focus();
