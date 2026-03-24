@@ -41,6 +41,10 @@ data/chroma/
 data/sessions/
 *.sqlite3
 
+# MLX / HuggingFace model cache
+models/
+.cache/huggingface/
+
 # OS
 .DS_Store
 Thumbs.db

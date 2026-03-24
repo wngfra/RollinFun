@@ -1,4 +1,4 @@
-"""Assemble LLM context for Ollama chat API."""
+"""Assemble LLM context for the chat API."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def assemble_context(
     recent_turns: list[dict[str, str]] | None = None,
     user_input: str,
 ) -> list[dict[str, str]]:
-    """Build the full message list for an Ollama /api/chat call.
+    """Build the full message list for a chat completion call.
 
     Returns a list of ``{"role": ..., "content": ...}`` dicts.
     """

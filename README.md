@@ -1,8 +1,8 @@
 # RP-TTS Engine
 
-**Real-time role-play narration with multi-voice text-to-speech, powered by local LLMs and MLX.**
+**Real-time role-play narration with multi-voice text-to-speech, running entirely on Apple Silicon via MLX.**
 
-RP-TTS Engine is a single-process Python server that streams interactive fiction through a WebSocket, with each character voiced by a distinct TTS model running on Apple Silicon unified memory. A browser-based UI renders a cinematic dialogue experience with lip-synced 3D avatars, ambient particles, and BG3-inspired visual design.
+RP-TTS Engine is a single-process Python server that streams interactive fiction through a WebSocket. Both the LLM and TTS models run in-process on Apple Silicon unified memory via MLX -- no external servers required. A browser-based UI renders a cinematic dialogue experience with lip-synced 3D avatars, ambient particles, and BG3-inspired visual design.
 
 ---
 
@@ -12,13 +12,21 @@ RP-TTS Engine is a single-process Python server that streams interactive fiction
 Browser <--WebSocket--> FastAPI
                           |-- StoryManager     -> .story.yaml CRUD + compile to system prompt
                           |-- MemoryManager    -> ChromaDB + SQLite + rolling summary
-                          |-- OllamaClient     -> streaming HTTP to localhost:11434
+                          |-- MLXLMClient      -> in-process mlx-lm inference
                           |-- SegmentParser    -> regex stream -> typed Segment objects
                           |-- VoiceRouter      -> character_id -> mlx-audio engine + kwargs
                           '-- AudioPipeline    -> PCM normalize + silence + base64 -> WS
 ```
 
-**Memory budget:** ~11 GB unified (8 GB LLM Q4\_K\_M + 2 GB Chatterbox fp16 + 500 MB Kokoro bf16 + 300 MB embeddings + 200 MB Python).
+Everything runs in a single Python process on unified memory:
+
+| Component | Model | Memory |
+|-----------|-------|--------|
+| LLM | `mlx-community/Mistral-7B-Instruct-v0.2` | ~4 GB |
+| TTS (Chatterbox) | `mlx-community/chatterbox-turbo-fp16` | ~2 GB |
+| TTS (Kokoro) | `mlx-community/Kokoro-82M-bf16` | ~500 MB |
+| Embeddings | `mlx-community/all-MiniLM-L6-v2` | ~100 MB |
+| Python + ChromaDB | -- | ~200 MB |
 
 ---
 
@@ -41,40 +49,45 @@ Browser <--WebSocket--> FastAPI
 
 ### Prerequisites
 
+- macOS with Apple Silicon (M1/M2/M3/M4)
 - Python 3.11+
-- [Ollama](https://ollama.ai) with a loaded model (default: `MN-Violet-Lotus-12B:Q4_K_M`)
-- macOS with Apple Silicon (for MLX TTS; Linux runs with silent dummy engine)
+- [uv](https://github.com/astral-sh/uv) (auto-installed by `launch.sh` if missing)
 
-### Install
+### One-Command Launch
 
 ```bash
 git clone https://github.com/wngfra/RollinFun.git
 cd RollinFun
+./launch.sh
+```
 
-# Core dependencies
+The launch script will:
+1. Install `uv` if not present
+2. Create a `.venv` with Python 3.11
+3. Install all dependencies
+4. Download the LLM and TTS models on first run (cached by HuggingFace Hub)
+5. Start the server
+
+### Manual Install
+
+```bash
 pip install -e .
 
-# With MLX TTS support (Apple Silicon only)
-pip install -e ".[mlx]"
-
-# Development tools
+# Or with dev tools
 pip install -e ".[dev]"
 ```
 
 ### Run
 
 ```bash
-# Pull the LLM and embedding models
-ollama pull MN-Violet-Lotus-12B:Q4_K_M
-ollama pull nomic-embed-text
-
-# Start the server
 python -m src.main
 # or
 rp-tts
 ```
 
 The server starts at `http://127.0.0.1:8000`. Connect via WebSocket at `ws://127.0.0.1:8000/ws`.
+
+Models are downloaded automatically from HuggingFace Hub on first use and cached locally.
 
 ---
 
@@ -83,13 +96,14 @@ The server starts at `http://127.0.0.1:8000`. Connect via WebSocket at `ws://127
 ```
 RollinFun/
 ├── pyproject.toml              # Project metadata and dependencies
+├── launch.sh                   # One-command setup and run via uv
 ├── config/
 │   └── default.yaml            # Runtime configuration
 ├── src/
 │   ├── main.py                 # FastAPI app, static mount, WS endpoint
 │   ├── config.py               # Pydantic settings from YAML
 │   ├── llm/
-│   │   ├── client.py           # Async Ollama HTTP streaming
+│   │   ├── client.py           # In-process MLX LLM streaming via mlx-lm
 │   │   └── prompt.py           # Context assembly for chat API
 │   ├── parser/
 │   │   └── segment_parser.py   # Streaming regex parser for tagged output
@@ -129,12 +143,27 @@ Key sections:
 
 | Section | Controls |
 |---------|----------|
-| `llm` | Ollama base URL, model name, temperature, max tokens |
+| `llm` | MLX model ID, temperature, top\_p, max tokens, repetition penalty |
 | `tts.engines` | Model IDs and enabled state for Kokoro, Chatterbox, Qwen3 |
 | `tts.narrator_*` | Default narrator voice, speed, engine |
 | `audio` | Inter/intra speaker silence durations |
 | `memory` | Summary interval, RAG top-K, recent turn window |
 | `server` | Host and port |
+
+### Changing the LLM
+
+Edit `config/default.yaml`:
+
+```yaml
+llm:
+  model: "mlx-community/Mistral-7B-Instruct-v0.2"   # any mlx-community model
+  temperature: 0.8
+  top_p: 0.9
+  max_tokens: 1024
+  repetition_penalty: 1.05
+```
+
+Any model from the [mlx-community](https://huggingface.co/mlx-community) HuggingFace organization works. The model is downloaded and cached on first use.
 
 ---
 
@@ -220,14 +249,16 @@ uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 
 | Component | Library | License |
 |-----------|---------|---------|
+| LLM inference | mlx-lm | MIT |
+| TTS inference | mlx-audio | MIT |
+| Embeddings | mlx-embeddings | MIT |
 | Web framework | FastAPI | MIT |
 | ASGI server | Uvicorn | BSD-3 |
-| HTTP client | httpx | BSD-3 |
 | Config / validation | Pydantic | MIT |
-| TTS inference | mlx-audio | MIT |
 | Vector store | ChromaDB | Apache-2.0 |
-| LLM backend | Ollama | MIT |
 | Numerical | NumPy | BSD-3 |
+
+All ML inference runs locally via [MLX](https://github.com/ml-explore/mlx) on Apple Silicon unified memory. No cloud APIs, no external servers.
 
 ---
 
