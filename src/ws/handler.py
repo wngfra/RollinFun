@@ -88,6 +88,10 @@ class TurnHandler:
         if not user_text:
             return
 
+        if self._llm is None:
+            await _send(ws, {"type": "status", "state": "error", "message": "LLM backend is not available"})
+            return
+
         # 1. Send status
         await _send(ws, {"type": "status", "state": "generating", "message": "Generating response…"})
 
