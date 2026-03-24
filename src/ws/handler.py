@@ -52,6 +52,7 @@ class TurnHandler:
         self._config = config
         self._llm = llm_client
         self._router = voice_router
+        self._llm_loading = llm_client is None  # True while model loads in background
 
     async def dispatch(self, ws: WebSocket, raw: str, session: Session) -> None:
         """Route an inbound WebSocket message by its ``type`` field."""
@@ -271,6 +272,8 @@ class TurnHandler:
         # LLM status
         if self._llm is not None:
             await _send(ws, {"type": "model_status", "model": self._llm.current_model, "state": "ready", "message": ""})
+        elif self._llm_loading:
+            await _send(ws, {"type": "model_status", "model": "", "state": "loading", "message": "Model is loading…"})
         else:
             await _send(ws, {"type": "model_status", "model": "", "state": "unavailable", "message": "LLM backend is not available"})
         # TTS status
