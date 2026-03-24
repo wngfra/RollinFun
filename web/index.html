@@ -4,14 +4,730 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RP-TTS Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&display=swap" rel="stylesheet">
     <style>
-        body { background: #07070c; color: #e8e4dc; font-family: sans-serif;
-               display: flex; align-items: center; justify-content: center;
-               height: 100vh; margin: 0; }
-        h1 { font-family: 'Cormorant Garamond', Georgia, serif; color: #c8a96e; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #07070c;
+            --bg-panel: #0e0e16;
+            --bg-bubble-npc: #14141f;
+            --bg-bubble-user: #1a1510;
+            --text: #e8e4dc;
+            --text-dim: #8a8578;
+            --accent: #c8a96e;
+            --accent-dim: #7a6a42;
+            --error: #c44;
+            --radius: 10px;
+        }
+
+        html, body { height: 100%; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* ── Layout ── */
+        #app {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        #avatar-panel {
+            width: 40%;
+            min-width: 280px;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg);
+            border-right: 1px solid #1a1a28;
+            position: relative;
+        }
+
+        #avatar-canvas {
+            flex: 1;
+            width: 100%;
+            display: block;
+        }
+
+        #status-bar {
+            padding: 8px 16px;
+            font-size: 12px;
+            color: var(--text-dim);
+            background: var(--bg-panel);
+            border-top: 1px solid #1a1a28;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #555;
+            flex-shrink: 0;
+        }
+        #status-dot.connected { background: #4a4; }
+        #status-dot.error { background: var(--error); }
+        #status-dot.working { background: var(--accent); animation: pulse 1s infinite; }
+
+        @keyframes pulse { 50% { opacity: 0.4; } }
+
+        #chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-panel);
+            min-width: 0;
+        }
+
+        /* ── Scene banner ── */
+        #scene-banner {
+            padding: 10px 20px;
+            font-family: 'Cormorant Garamond', Georgia, serif;
+            font-size: 16px;
+            color: var(--accent);
+            background: linear-gradient(180deg, #12111a 0%, var(--bg-panel) 100%);
+            border-bottom: 1px solid #1a1a28;
+            text-align: center;
+            display: none;
+        }
+        #scene-banner.visible { display: block; }
+
+        /* ── Messages ── */
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            scroll-behavior: smooth;
+        }
+
+        #messages::-webkit-scrollbar { width: 6px; }
+        #messages::-webkit-scrollbar-track { background: transparent; }
+        #messages::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 3px; }
+
+        .msg {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            word-wrap: break-word;
+        }
+
+        .msg.narrator, .msg.character {
+            align-self: flex-start;
+            background: var(--bg-bubble-npc);
+            border: 1px solid #1e1e2e;
+        }
+
+        .msg.user {
+            align-self: flex-end;
+            background: var(--bg-bubble-user);
+            border: 1px solid #2a2518;
+        }
+
+        .msg-role {
+            font-family: 'Cormorant Garamond', Georgia, serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 3px;
+        }
+
+        .msg.user .msg-role { color: var(--accent-dim); }
+
+        .msg-text { color: var(--text); }
+
+        .msg-mood {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 4px;
+            font-style: italic;
+        }
+
+        /* ── Choices ── */
+        #choices-container {
+            padding: 0 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        #choices-container:empty { padding: 0; }
+
+        .choice-btn {
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--accent-dim);
+            border-radius: var(--radius);
+            padding: 10px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .choice-btn:hover {
+            background: rgba(200, 169, 110, 0.1);
+            border-color: var(--accent);
+        }
+
+        /* ── Input area ── */
+        #input-area {
+            padding: 16px 20px;
+            display: flex;
+            gap: 10px;
+            border-top: 1px solid #1a1a28;
+            background: var(--bg-panel);
+        }
+
+        #user-input {
+            flex: 1;
+            background: #0a0a14;
+            border: 1px solid #2a2a3a;
+            border-radius: var(--radius);
+            padding: 10px 14px;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        #user-input:focus { border-color: var(--accent-dim); }
+        #user-input::placeholder { color: #555; }
+
+        #send-btn {
+            background: var(--accent);
+            color: var(--bg);
+            border: none;
+            border-radius: var(--radius);
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+
+        #send-btn:hover { opacity: 0.85; }
+        #send-btn:disabled { opacity: 0.4; cursor: default; }
+
+        /* ── Responsive ── */
+        @media (max-width: 768px) {
+            #app { flex-direction: column; }
+            #avatar-panel {
+                width: 100%;
+                min-width: 0;
+                height: 35vh;
+                border-right: none;
+                border-bottom: 1px solid #1a1a28;
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>RP-TTS Engine — P0</h1>
+    <div id="app">
+        <div id="avatar-panel">
+            <canvas id="avatar-canvas"></canvas>
+            <div id="status-bar">
+                <div id="status-dot"></div>
+                <span id="status-text">Connecting…</span>
+            </div>
+        </div>
+        <div id="chat-panel">
+            <div id="scene-banner"></div>
+            <div id="messages">
+                <div class="msg narrator">
+                    <div class="msg-role">System</div>
+                    <div class="msg-text">Welcome to the RP-TTS Engine. Type a message to begin.</div>
+                </div>
+            </div>
+            <div id="choices-container"></div>
+            <div id="input-area">
+                <input id="user-input" type="text" placeholder="Type your message…" autocomplete="off">
+                <button id="send-btn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.163.0/build/three.module.js"
+        }
+    }
+    </script>
+
+    <script type="module">
+    import * as THREE from 'three';
+
+    /* ================================================================
+       Audio Player — decodes base64 int16 PCM and queues playback
+       ================================================================ */
+    class AudioPlayer {
+        constructor(sampleRate = 24000) {
+            this.sampleRate = sampleRate;
+            this.ctx = null; // created lazily on user interaction
+            this.queue = [];
+            this.playing = false;
+        }
+
+        ensureContext() {
+            if (!this.ctx) {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.sampleRate });
+            }
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+        }
+
+        enqueue(base64Pcm, words, wtimes, wdurations, onWord) {
+            this.ensureContext();
+            const binary = atob(base64Pcm);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+            const int16 = new Int16Array(bytes.buffer);
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+
+            const buffer = this.ctx.createBuffer(1, float32.length, this.sampleRate);
+            buffer.getChannelData(0).set(float32);
+
+            this.queue.push({ buffer, words, wtimes, wdurations, onWord });
+            if (!this.playing) this._playNext();
+        }
+
+        _playNext() {
+            if (this.queue.length === 0) { this.playing = false; return; }
+            this.playing = true;
+            const item = this.queue.shift();
+            const source = this.ctx.createBufferSource();
+            source.buffer = item.buffer;
+            source.connect(this.ctx.destination);
+            source.onended = () => this._playNext();
+            source.start();
+
+            // schedule word callbacks for lip-sync
+            if (item.onWord && item.words) {
+                for (let i = 0; i < item.words.length; i++) {
+                    const t = item.wtimes[i];
+                    const d = item.wdurations[i];
+                    setTimeout(() => item.onWord(true), t);
+                    setTimeout(() => item.onWord(false), t + d * 0.8);
+                }
+            }
+        }
+    }
+
+    /* ================================================================
+       3D Avatar — procedural geometric head with lip-sync
+       ================================================================ */
+    class AvatarScene {
+        constructor(canvas) {
+            this.canvas = canvas;
+            this.mouthOpen = 0;
+            this.targetMouthOpen = 0;
+            this.headTiltTarget = 0;
+
+            // Scene
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x07070c);
+
+            // Camera
+            const aspect = canvas.clientWidth / canvas.clientHeight;
+            this.camera = new THREE.PerspectiveCamera(30, aspect, 0.1, 100);
+            this.camera.position.set(0, 0.25, 2.8);
+
+            // Renderer
+            this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            this._resize();
+
+            // Lights
+            this.scene.add(new THREE.AmbientLight(0xc8a96e, 0.3));
+            const key = new THREE.DirectionalLight(0xfff5e0, 0.9);
+            key.position.set(2, 3, 3);
+            this.scene.add(key);
+            const fill = new THREE.DirectionalLight(0x8090c0, 0.3);
+            fill.position.set(-2, 1, 2);
+            this.scene.add(fill);
+
+            // Build avatar
+            this._buildAvatar();
+
+            // Resize observer
+            this._ro = new ResizeObserver(() => this._resize());
+            this._ro.observe(canvas.parentElement);
+
+            // Start loop
+            this._animate();
+        }
+
+        _resize() {
+            const w = this.canvas.clientWidth;
+            const h = this.canvas.clientHeight;
+            if (w === 0 || h === 0) return;
+            this.renderer.setSize(w, h, false);
+            this.camera.aspect = w / h;
+            this.camera.updateProjectionMatrix();
+        }
+
+        _buildAvatar() {
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xd4a574, roughness: 0.65, metalness: 0.05 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4 });
+            const mouthMat = new THREE.MeshStandardMaterial({ color: 0x4a2020, roughness: 0.6 });
+            const irisMat = new THREE.MeshStandardMaterial({ color: 0x4a7a5a, roughness: 0.3 });
+
+            // Root group
+            this.avatarGroup = new THREE.Group();
+            this.scene.add(this.avatarGroup);
+
+            // Head
+            const headGeo = new THREE.SphereGeometry(0.38, 48, 48);
+            this.head = new THREE.Mesh(headGeo, skinMat);
+            this.head.position.y = 0.42;
+            this.avatarGroup.add(this.head);
+
+            // Eyes
+            const eyeGeo = new THREE.SphereGeometry(0.055, 24, 24);
+            const irisGeo = new THREE.SphereGeometry(0.03, 16, 16);
+            const pupilGeo = new THREE.SphereGeometry(0.015, 12, 12);
+            for (const side of [-1, 1]) {
+                const eyeWhite = new THREE.Mesh(eyeGeo, new THREE.MeshStandardMaterial({ color: 0xf0ece5, roughness: 0.2 }));
+                eyeWhite.position.set(side * 0.13, 0.06, 0.33);
+                this.head.add(eyeWhite);
+
+                const iris = new THREE.Mesh(irisGeo, irisMat);
+                iris.position.z = 0.035;
+                eyeWhite.add(iris);
+
+                const pupil = new THREE.Mesh(pupilGeo, darkMat);
+                pupil.position.z = 0.02;
+                iris.add(pupil);
+            }
+
+            // Eyebrows
+            const browGeo = new THREE.BoxGeometry(0.12, 0.015, 0.03);
+            for (const side of [-1, 1]) {
+                const brow = new THREE.Mesh(browGeo, darkMat);
+                brow.position.set(side * 0.13, 0.13, 0.34);
+                brow.rotation.z = side * -0.15;
+                this.head.add(brow);
+            }
+
+            // Nose
+            const noseGeo = new THREE.ConeGeometry(0.03, 0.08, 8);
+            const nose = new THREE.Mesh(noseGeo, skinMat);
+            nose.position.set(0, -0.01, 0.37);
+            nose.rotation.x = -0.3;
+            this.head.add(nose);
+
+            // Mouth
+            this.mouthGroup = new THREE.Group();
+            this.mouthGroup.position.set(0, -0.1, 0.34);
+            this.head.add(this.mouthGroup);
+
+            // Upper lip
+            const lipGeo = new THREE.TorusGeometry(0.06, 0.012, 8, 16, Math.PI);
+            this.upperLip = new THREE.Mesh(lipGeo, mouthMat);
+            this.upperLip.rotation.z = Math.PI;
+            this.mouthGroup.add(this.upperLip);
+
+            // Lower lip
+            this.lowerLip = new THREE.Mesh(lipGeo, mouthMat);
+            this.lowerLip.position.y = 0;
+            this.mouthGroup.add(this.lowerLip);
+
+            // Mouth interior (dark ellipse that scales for open/close)
+            const interiorGeo = new THREE.SphereGeometry(0.05, 16, 8);
+            this.mouthInterior = new THREE.Mesh(interiorGeo, new THREE.MeshStandardMaterial({ color: 0x2a0808, roughness: 0.8 }));
+            this.mouthInterior.scale.set(1.2, 0.05, 0.5);
+            this.mouthGroup.add(this.mouthInterior);
+
+            // Neck
+            const neckGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.2, 16);
+            const neck = new THREE.Mesh(neckGeo, skinMat);
+            neck.position.y = 0.0;
+            this.avatarGroup.add(neck);
+
+            // Shoulders
+            const shoulderGeo = new THREE.CapsuleGeometry(0.15, 0.5, 8, 16);
+            const shoulders = new THREE.Mesh(shoulderGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a2a, roughness: 0.8 }));
+            shoulders.rotation.z = Math.PI / 2;
+            shoulders.position.y = -0.2;
+            this.avatarGroup.add(shoulders);
+
+            // Torso
+            const torsoGeo = new THREE.CylinderGeometry(0.28, 0.24, 0.4, 16);
+            const torso = new THREE.Mesh(torsoGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a2a, roughness: 0.8 }));
+            torso.position.y = -0.5;
+            this.avatarGroup.add(torso);
+        }
+
+        setMouthOpen(open) {
+            this.targetMouthOpen = open ? 1.0 : 0.0;
+        }
+
+        setMood(mood) {
+            switch (mood) {
+                case 'happy': this.headTiltTarget = 0.08; break;
+                case 'sad': this.headTiltTarget = -0.12; break;
+                case 'angry': this.headTiltTarget = -0.05; break;
+                case 'surprised': this.headTiltTarget = 0.1; break;
+                default: this.headTiltTarget = 0; break;
+            }
+        }
+
+        _animate() {
+            requestAnimationFrame(() => this._animate());
+
+            const t = Date.now() * 0.001;
+
+            // Smooth mouth interpolation
+            this.mouthOpen += (this.targetMouthOpen - this.mouthOpen) * 0.35;
+            const openAmt = this.mouthOpen;
+            this.upperLip.position.y = openAmt * 0.015;
+            this.lowerLip.position.y = -openAmt * 0.025;
+            this.mouthInterior.scale.y = 0.05 + openAmt * 0.6;
+
+            // Idle head sway
+            this.head.rotation.y = Math.sin(t * 0.5) * 0.04;
+            this.head.rotation.x = (Math.sin(t * 0.35) * 0.02) +
+                (this.headTiltTarget - this.head.rotation.x) * 0.05;
+
+            // Subtle breathing on shoulders
+            this.avatarGroup.position.y = Math.sin(t * 1.2) * 0.005;
+
+            this.renderer.render(this.scene, this.camera);
+        }
+    }
+
+    /* ================================================================
+       WebSocket Manager
+       ================================================================ */
+    class WebSocketManager {
+        constructor(handlers) {
+            this.handlers = handlers;
+            this.ws = null;
+            this.reconnectDelay = 1000;
+        }
+
+        connect() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            this.ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+            this.ws.onopen = () => {
+                this.reconnectDelay = 1000;
+                this.handlers.onConnect();
+            };
+
+            this.ws.onclose = () => {
+                this.handlers.onDisconnect();
+                setTimeout(() => this.connect(), this.reconnectDelay);
+                this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, 8000);
+            };
+
+            this.ws.onerror = () => {}; // onclose will fire
+
+            this.ws.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+                    this.handlers.onMessage(msg);
+                } catch { /* ignore malformed */ }
+            };
+        }
+
+        send(type, data = {}) {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type, ...data }));
+            }
+        }
+    }
+
+    /* ================================================================
+       UI Controller
+       ================================================================ */
+    const $ = (sel) => document.querySelector(sel);
+
+    const messagesEl = $('#messages');
+    const choicesEl = $('#choices-container');
+    const inputEl = $('#user-input');
+    const sendBtn = $('#send-btn');
+    const statusDot = $('#status-dot');
+    const statusText = $('#status-text');
+    const sceneBanner = $('#scene-banner');
+
+    // Init avatar
+    let avatar;
+    try {
+        avatar = new AvatarScene($('#avatar-canvas'));
+    } catch (e) {
+        console.warn('Three.js avatar failed to init:', e);
+        avatar = { setMouthOpen() {}, setMood() {} };
+    }
+
+    // Init audio
+    const audioPlayer = new AudioPlayer(24000);
+
+    // Init WebSocket
+    const wsManager = new WebSocketManager({
+        onConnect() {
+            statusDot.className = 'connected';
+            statusText.textContent = 'Connected';
+        },
+        onDisconnect() {
+            statusDot.className = 'error';
+            statusText.textContent = 'Disconnected — reconnecting…';
+        },
+        onMessage(msg) {
+            switch (msg.type) {
+                case 'status': handleStatus(msg); break;
+                case 'speech': handleSpeech(msg); break;
+                case 'choices': handleChoices(msg); break;
+                case 'scene_change': handleSceneChange(msg); break;
+            }
+        }
+    });
+
+    wsManager.connect();
+
+    // ── Message handlers ──
+
+    function handleStatus(msg) {
+        switch (msg.state) {
+            case 'generating':
+            case 'synthesizing':
+                statusDot.className = 'working';
+                statusText.textContent = msg.message || msg.state;
+                sendBtn.disabled = true;
+                break;
+            case 'ready':
+                statusDot.className = 'connected';
+                statusText.textContent = 'Ready';
+                sendBtn.disabled = false;
+                break;
+            case 'error':
+                statusDot.className = 'error';
+                statusText.textContent = msg.message || 'Error';
+                sendBtn.disabled = false;
+                appendMessage('system', msg.message || 'An error occurred.', null, 'error');
+                break;
+        }
+    }
+
+    function handleSpeech(msg) {
+        const mood = msg.mood && msg.mood !== 'neutral' ? msg.mood : null;
+        appendMessage(msg.role || 'narrator', msg.text, mood);
+
+        // Set avatar mood
+        avatar.setMood(msg.mood || 'neutral');
+
+        // Play audio with lip-sync
+        if (msg.audio) {
+            audioPlayer.enqueue(
+                msg.audio,
+                msg.words,
+                msg.wtimes,
+                msg.wdurations,
+                (open) => avatar.setMouthOpen(open)
+            );
+        }
+    }
+
+    function handleChoices(msg) {
+        choicesEl.innerHTML = '';
+        if (!msg.options || msg.options.length === 0) return;
+
+        for (const option of msg.options) {
+            const btn = document.createElement('button');
+            btn.className = 'choice-btn';
+            btn.textContent = option;
+            btn.onclick = () => {
+                choicesEl.innerHTML = '';
+                sendText(option);
+            };
+            choicesEl.appendChild(btn);
+        }
+        scrollToBottom();
+    }
+
+    function handleSceneChange(msg) {
+        if (msg.location_id) {
+            sceneBanner.textContent = msg.location_id;
+            sceneBanner.classList.add('visible');
+        }
+    }
+
+    // ── Chat helpers ──
+
+    function appendMessage(role, text, mood, cls) {
+        const div = document.createElement('div');
+        const roleClass = (role === 'user') ? 'user' : (cls || (role === 'narrator' ? 'narrator' : 'character'));
+        div.className = `msg ${roleClass}`;
+
+        const roleLabel = document.createElement('div');
+        roleLabel.className = 'msg-role';
+        roleLabel.textContent = role;
+        div.appendChild(roleLabel);
+
+        const textEl = document.createElement('div');
+        textEl.className = 'msg-text';
+        textEl.textContent = text;
+        div.appendChild(textEl);
+
+        if (mood) {
+            const moodEl = document.createElement('div');
+            moodEl.className = 'msg-mood';
+            moodEl.textContent = mood;
+            div.appendChild(moodEl);
+        }
+
+        messagesEl.appendChild(div);
+        scrollToBottom();
+    }
+
+    function scrollToBottom() {
+        requestAnimationFrame(() => {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        });
+    }
+
+    function sendText(text) {
+        if (!text.trim()) return;
+        audioPlayer.ensureContext();
+        appendMessage('user', text);
+        wsManager.send('message', { text });
+    }
+
+    // ── Input handlers ──
+
+    sendBtn.onclick = () => {
+        const text = inputEl.value.trim();
+        if (!text) return;
+        sendText(text);
+        inputEl.value = '';
+        inputEl.focus();
+    };
+
+    inputEl.onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendBtn.click();
+        }
+    };
+
+    // Focus input on load
+    inputEl.focus();
+    </script>
 </body>
 </html>

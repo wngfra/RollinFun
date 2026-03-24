@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.config import get_config
@@ -41,9 +42,14 @@ if WEB_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(WEB_DIR), html=True), name="static")
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok", "engine": "rp-tts"}
+
+
 @app.get("/")
 async def root():
-    return {"status": "ok", "engine": "rp-tts"}
+    return FileResponse(WEB_DIR / "index.html")
 
 
 @app.websocket("/ws")
