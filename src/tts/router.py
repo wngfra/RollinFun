@@ -23,19 +23,19 @@ if MLX_AVAILABLE:
 
         _ENGINE_CLASSES["kokoro"] = KokoroEngine
     except Exception:
-        pass
+        logger.warning("Failed to import KokoroEngine", exc_info=True)
     try:
         from src.tts.chatterbox_mlx import ChatterboxEngine
 
         _ENGINE_CLASSES["chatterbox"] = ChatterboxEngine
     except Exception:
-        pass
+        logger.warning("Failed to import ChatterboxEngine", exc_info=True)
     try:
         from src.tts.qwen3_mlx import Qwen3Engine
 
         _ENGINE_CLASSES["qwen3"] = Qwen3Engine
     except Exception:
-        pass
+        logger.warning("Failed to import Qwen3Engine", exc_info=True)
 
 
 class VoiceRouter:

@@ -19,6 +19,7 @@ try:
 
     MLX_LM_AVAILABLE = True
 except Exception:
+    logger.warning("mlx-lm import failed — LLM generation will be disabled", exc_info=True)
     MLX_LM_AVAILABLE = False
 
 try:
@@ -26,6 +27,7 @@ try:
 
     MLX_EMBED_AVAILABLE = True
 except Exception:
+    logger.warning("mlx-embeddings import failed — embeddings will be disabled", exc_info=True)
     MLX_EMBED_AVAILABLE = False
 
 
