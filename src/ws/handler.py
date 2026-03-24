@@ -88,6 +88,10 @@ class TurnHandler:
         if not user_text:
             return
 
+        if self._llm is None:
+            await _send(ws, {"type": "status", "state": "error", "message": "LLM backend is not available"})
+            return
+
         # 1. Send status
         await _send(ws, {"type": "status", "state": "generating", "message": "Generating response…"})
 
@@ -198,6 +202,11 @@ class TurnHandler:
     ) -> None:
         session.story_id = msg.get("story_id")
         session.player_name = msg.get("player_name", "Player")
+        session.system_prompt = msg.get("system_prompt", session.system_prompt)
+        session.act_title = msg.get("act_title", None)
+        session.current_location = msg.get("current_location", None)
+        session.objectives = msg.get("objectives", [])
+        session.completed_beats.clear()
         session.recent_turns.clear()
         session.turn_count = 0
         await _send(ws, {"type": "status", "state": "ready", "message": f"Story '{session.story_id}' started"})
