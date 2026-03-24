@@ -1,0 +1,43 @@
+llm:
+  base_url: "http://localhost:11434"
+  model: "MN-Violet-Lotus-12B:Q4_K_M"
+  embed_model: "nomic-embed-text"
+  temperature: 0.8
+  max_tokens: 1024
+
+memory:
+  summary_interval: 15
+  summary_max_tokens: 2048
+  rag_top_k: 5
+  recent_turns: 12
+
+tts:
+  engines:
+    kokoro:
+      model: "mlx-community/Kokoro-82M-bf16"
+      enabled: true
+    chatterbox:
+      model: "mlx-community/chatterbox-turbo-fp16"
+      enabled: true
+    qwen3:
+      model: "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16"
+      enabled: false
+  narrator_engine: "kokoro"
+  narrator_voice: "bf_emma"
+  narrator_speed: 0.95
+  sample_rate: 24000
+
+audio:
+  inter_speaker_silence_ms: 300
+  intra_speaker_silence_ms: 80
+
+avatar:
+  default_glb: "./avatars/default.glb"
+  camera_view: "upper"
+
+stories:
+  directory: "./stories"
+
+server:
+  host: "127.0.0.1"
+  port: 8000
