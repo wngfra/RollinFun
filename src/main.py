@@ -12,7 +12,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.config import get_config
-from src.llm.client import LLMUnavailableError, MLXLMClient
+from src.llm import create_llm_client
+from src.llm.client import LLMUnavailableError
 from src.tts.router import VoiceRouter
 from src.ws.handler import Session, TurnHandler
 
@@ -37,7 +38,7 @@ async def lifespan(app: FastAPI):
     async def _load_llm() -> None:
         try:
             loop = asyncio.get_event_loop()
-            client = await loop.run_in_executor(None, MLXLMClient, config)
+            client = await loop.run_in_executor(None, create_llm_client, config)
             handler._llm = client
             handler._llm_loading = False
             logger.info("LLM model loaded and ready")

@@ -15,12 +15,10 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "numpy",
-    "mlx-lm",
-    "mlx-audio",
-    "mlx-embeddings",
 ]
 
 [project.optional-dependencies]
+mlx = ["mlx-lm", "mlx-audio", "mlx-embeddings"]
 dev = ["pytest", "pytest-asyncio", "pytest-cov"]
 
 [project.scripts]

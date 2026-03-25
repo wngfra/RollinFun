@@ -11,12 +11,16 @@ from pydantic import BaseModel
 
 
 class LLMConfig(BaseModel):
+    backend: str = "auto"  # "auto", "mlx", or "openai"
     model: str = "mlx-community/Mistral-7B-Instruct-v0.2"
     embed_model: str = "mlx-community/all-MiniLM-L6-v2"
     temperature: float = 0.8
     top_p: float = 0.9
     max_tokens: int = 1024
     repetition_penalty: float = 1.05
+    openai_base_url: str = "http://localhost:11434/v1"
+    openai_api_key: str = ""
+    openai_model: str = ""
 
 
 class MemoryConfig(BaseModel):
