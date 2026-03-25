@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,15 +24,28 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = get_config()
-    try:
-        llm_client = MLXLMClient(config)
-    except LLMUnavailableError:
-        logger.warning("MLX LLM not available — server will start but generation is disabled")
-        llm_client = None  # type: ignore[assignment]
     voice_router = VoiceRouter(config)
+
+    # Create handler with no LLM initially — model loads in background
+    handler = TurnHandler(config, None, voice_router)  # type: ignore[arg-type]
     app.state.config = config
-    app.state.turn_handler = TurnHandler(config, llm_client, voice_router)
+    app.state.turn_handler = handler
+
     logger.info("RP-TTS Engine ready on %s:%d", config.server.host, config.server.port)
+
+    # Load LLM in a background task so the server accepts connections immediately
+    async def _load_llm() -> None:
+        try:
+            loop = asyncio.get_event_loop()
+            client = await loop.run_in_executor(None, MLXLMClient, config)
+            handler._llm = client
+            handler._llm_loading = False
+            logger.info("LLM model loaded and ready")
+        except LLMUnavailableError:
+            handler._llm_loading = False
+            logger.warning("MLX LLM not available — generation is disabled")
+
+    asyncio.create_task(_load_llm())
     yield
 
 

@@ -6,11 +6,14 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
+import logging as _logging
+
 try:
     from mlx_audio.tts.utils import load_model as _mlx_load_model
 
     MLX_AVAILABLE = True
 except Exception:
+    _logging.getLogger(__name__).warning("mlx-audio import failed — TTS will use silent fallback", exc_info=True)
     MLX_AVAILABLE = False
     _mlx_load_model = None
 

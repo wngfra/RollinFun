@@ -19,6 +19,7 @@ try:
 
     MLX_LM_AVAILABLE = True
 except Exception:
+    logger.warning("mlx-lm import failed — LLM generation will be disabled", exc_info=True)
     MLX_LM_AVAILABLE = False
 
 try:
@@ -26,6 +27,7 @@ try:
 
     MLX_EMBED_AVAILABLE = True
 except Exception:
+    logger.warning("mlx-embeddings import failed — embeddings will be disabled", exc_info=True)
     MLX_EMBED_AVAILABLE = False
 
 
@@ -48,6 +50,7 @@ class MLXLMClient:
             )
 
         self._max_tokens = config.llm.max_tokens
+        self._model_id = config.llm.model
 
         # Load LLM
         logger.info("Loading LLM: %s", config.llm.model)
@@ -86,6 +89,29 @@ class MLXLMClient:
             logger.warning("mlx-embeddings not available — embeddings disabled")
 
         logger.info("MLX LLM client ready")
+
+    @property
+    def current_model(self) -> str:
+        """Return the currently loaded model ID."""
+        return self._model_id
+
+    async def switch_model(self, model_id: str) -> None:
+        """Load a new model in a background thread. Auto-downloads if not cached."""
+        if model_id == self._model_id:
+            return
+        logger.info("Switching LLM model to: %s", model_id)
+        loop = asyncio.get_event_loop()
+        try:
+            model, tokenizer = await loop.run_in_executor(None, _mlx_lm_load, model_id)
+        except Exception as exc:
+            raise LLMUnavailableError(
+                f"Failed to load model {model_id}: {exc}"
+            ) from exc
+        # Atomic swap
+        self._model = model
+        self._tokenizer = tokenizer
+        self._model_id = model_id
+        logger.info("LLM model switched to: %s", model_id)
 
     async def close(self) -> None:
         """No-op — kept for interface compatibility."""

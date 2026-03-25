@@ -222,6 +222,63 @@
         #send-btn:hover { opacity: 0.85; }
         #send-btn:disabled { opacity: 0.4; cursor: default; }
 
+        /* ── Settings bar ── */
+        #settings-bar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 8px 20px;
+            background: #0a0a12;
+            border-bottom: 1px solid #1a1a28;
+            flex-wrap: wrap;
+        }
+
+        #model-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-right: auto;
+        }
+
+        #model-status-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #555;
+            flex-shrink: 0;
+        }
+        #model-status-dot.ready { background: #4a4; }
+        #model-status-dot.loading { background: var(--accent); animation: pulse 1s infinite; }
+        #model-status-dot.error, #model-status-dot.unavailable { background: var(--error); }
+
+        .setting-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .setting-group label {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .setting-group select {
+            background: #0e0e16;
+            color: var(--text);
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 12px;
+            outline: none;
+            cursor: pointer;
+            appearance: auto;
+        }
+        .setting-group select:focus { border-color: var(--accent-dim); }
+        .setting-group select:disabled { opacity: 0.4; cursor: default; }
+
         /* ── Story button ── */
         #story-btn {
             background: transparent;
@@ -359,6 +416,29 @@
             </div>
         </div>
         <div id="chat-panel">
+            <div id="settings-bar">
+                <div id="model-status">
+                    <span id="model-status-dot"></span>
+                    <span id="model-status-text">LLM: Checking…</span>
+                </div>
+                <div class="setting-group">
+                    <label for="tts-select">TTS</label>
+                    <select id="tts-select">
+                        <option value="kokoro">Kokoro</option>
+                        <option value="chatterbox">Chatterbox</option>
+                        <option value="qwen3">Qwen3</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label for="model-select">Model</label>
+                    <select id="model-select">
+                        <option value="mlx-community/Mistral-7B-Instruct-v0.2">Mistral 7B v0.2</option>
+                        <option value="mlx-community/Llama-3.2-3B-Instruct-4bit">Llama 3.2 3B</option>
+                        <option value="mlx-community/gemma-2-9b-it-4bit">Gemma 2 9B</option>
+                        <option value="mlx-community/Phi-3.5-mini-instruct-4bit">Phi 3.5 Mini</option>
+                    </select>
+                </div>
+            </div>
             <div id="scene-banner"></div>
             <div id="messages">
                 <div class="msg narrator">
@@ -700,6 +780,10 @@
     const statusDot = $('#status-dot');
     const statusText = $('#status-text');
     const sceneBanner = $('#scene-banner');
+    const ttsSelect = $('#tts-select');
+    const modelSelect = $('#model-select');
+    const modelStatusDot = $('#model-status-dot');
+    const modelStatusText = $('#model-status-text');
 
     // Init avatar
     let avatar;
@@ -718,6 +802,8 @@
         onConnect() {
             statusDot.className = 'connected';
             statusText.textContent = 'Connected';
+            // Request current model/TTS status
+            wsManager.send('get_status');
         },
         onDisconnect() {
             statusDot.className = 'error';
@@ -729,6 +815,8 @@
                 case 'speech': handleSpeech(msg); break;
                 case 'choices': handleChoices(msg); break;
                 case 'scene_change': handleSceneChange(msg); break;
+                case 'model_status': handleModelStatus(msg); break;
+                case 'tts_status': handleTtsStatus(msg); break;
             }
         }
     });
@@ -801,6 +889,49 @@
             sceneBanner.classList.add('visible');
         }
     }
+
+    function handleModelStatus(msg) {
+        modelStatusDot.className = msg.state || '';
+        const shortName = msg.model ? msg.model.split('/').pop() : 'None';
+        switch (msg.state) {
+            case 'ready':
+                modelStatusText.textContent = `LLM: ${shortName}`;
+                modelSelect.disabled = false;
+                // Sync dropdown to current model
+                if (msg.model) modelSelect.value = msg.model;
+                break;
+            case 'loading':
+                modelStatusText.textContent = `LLM: Loading ${shortName}…`;
+                modelSelect.disabled = true;
+                sendBtn.disabled = true;
+                break;
+            case 'error':
+                modelStatusText.textContent = `LLM: Error — ${msg.message || shortName}`;
+                modelSelect.disabled = false;
+                sendBtn.disabled = false;
+                break;
+            case 'unavailable':
+                modelStatusText.textContent = 'LLM: Unavailable (MLX required)';
+                modelSelect.disabled = true;
+                break;
+            default:
+                modelStatusText.textContent = `LLM: ${shortName}`;
+        }
+    }
+
+    function handleTtsStatus(msg) {
+        if (msg.engine) ttsSelect.value = msg.engine;
+    }
+
+    // ── Settings event handlers ──
+
+    ttsSelect.onchange = () => {
+        wsManager.send('tts_config', { engine: ttsSelect.value });
+    };
+
+    modelSelect.onchange = () => {
+        wsManager.send('model_switch', { model_id: modelSelect.value });
+    };
 
     // ── Chat helpers ──
 

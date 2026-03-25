@@ -52,6 +52,7 @@ class TurnHandler:
         self._config = config
         self._llm = llm_client
         self._router = voice_router
+        self._llm_loading = llm_client is None  # True while model loads in background
 
     async def dispatch(self, ws: WebSocket, raw: str, session: Session) -> None:
         """Route an inbound WebSocket message by its ``type`` field."""
@@ -72,6 +73,12 @@ class TurnHandler:
             await self._handle_voice_config(ws, msg)
         elif msg_type == "voice_preview":
             await self._handle_voice_preview(ws, msg)
+        elif msg_type == "tts_config":
+            await self._handle_tts_config(ws, msg)
+        elif msg_type == "model_switch":
+            await self._handle_model_switch(ws, msg)
+        elif msg_type == "get_status":
+            await self._handle_get_status(ws)
         elif msg_type == "control":
             await _send(ws, {"type": "status", "state": "error", "message": "Control actions not yet implemented"})
         else:
@@ -237,6 +244,40 @@ class TurnHandler:
             "wtimes": wtimes,
             "wdurations": wdurations,
         })
+
+
+    async def _handle_tts_config(self, ws: WebSocket, msg: dict) -> None:
+        engine_name = msg.get("engine", self._config.tts.narrator_engine)
+        self._config.tts.narrator_engine = engine_name
+        # Pre-resolve to trigger lazy load and validate engine exists
+        self._router._resolve_engine(engine_name)
+        await _send(ws, {"type": "tts_status", "engine": engine_name, "state": "ready"})
+
+    async def _handle_model_switch(self, ws: WebSocket, msg: dict) -> None:
+        model_id = msg.get("model_id", "")
+        if not model_id:
+            await _send(ws, {"type": "model_status", "model": "", "state": "error", "message": "No model ID provided"})
+            return
+        if self._llm is None:
+            await _send(ws, {"type": "model_status", "model": model_id, "state": "error", "message": "LLM backend is not available"})
+            return
+        await _send(ws, {"type": "model_status", "model": model_id, "state": "loading", "message": "Downloading / loading model…"})
+        try:
+            await self._llm.switch_model(model_id)
+            await _send(ws, {"type": "model_status", "model": model_id, "state": "ready", "message": ""})
+        except LLMUnavailableError as exc:
+            await _send(ws, {"type": "model_status", "model": self._llm.current_model, "state": "error", "message": str(exc)})
+
+    async def _handle_get_status(self, ws: WebSocket) -> None:
+        # LLM status
+        if self._llm is not None:
+            await _send(ws, {"type": "model_status", "model": self._llm.current_model, "state": "ready", "message": ""})
+        elif self._llm_loading:
+            await _send(ws, {"type": "model_status", "model": "", "state": "loading", "message": "Model is loading…"})
+        else:
+            await _send(ws, {"type": "model_status", "model": "", "state": "unavailable", "message": "LLM backend is not available"})
+        # TTS status
+        await _send(ws, {"type": "tts_status", "engine": self._config.tts.narrator_engine, "state": "ready"})
 
 
 async def _send(ws: WebSocket, data: dict) -> None:
